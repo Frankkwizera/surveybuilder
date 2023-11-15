@@ -1,0 +1,31 @@
+{
+  "title": "Random Survey",
+  "fields": [
+    {
+      "field_name": "Full Name",
+      "input_type": "text",
+      "expected_length": 50
+    },
+    {
+      "field_name": "Email",
+      "input_type": "email",
+      "expected_length": 100
+    },
+    {
+      "field_name": "Age",
+      "input_type": "integer",
+      "min_value": 0,
+      "max_value": 120
+    },
+    {
+      "field_name": "Gender",
+      "input_type": "multiple_choice",
+      "choices": ["Male", "Female", "Other"]
+    },
+    {
+      "field_name": "Feedback",
+      "input_type": "textarea",
+      "expected_length": 500
+    }
+  ]
+}
