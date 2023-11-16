@@ -2,27 +2,45 @@ from flask import Flask, request, jsonify, Response
 from flask_restful import Resource, Api
 import http
 import json
+import hashlib
 
 app = Flask(__name__)
 api = Api(app)
 
-global SURVEY_QUESTIONS
+# Global variables to store surveys and computed hashes
+COMPUTED_HASHES = []
 SURVEY_QUESTIONS = []
-
-global CURRENT_SURVEY_INDEX
-global CURRENT_QUESTION_INDEX
-CURRENT_SURVEY_INDEX = 0
-CURRENT_QUESTION_INDEX = 0
+SURVEY_INDEX = 0
+QUESTION_INDEX = 0
 
 
 class SurveyGenerator(Resource):
+    """
+    Handles generation and storage of surveys.
+    """
+
     def post(self):
+        """
+        Generates a survey from an uploaded JSON file.
+
+        Returns:
+            JSON response indicating successful survey generation or error messages.
+        """
+        
         uploaded_file = request.files['file']
         if uploaded_file.filename.endswith('.json'):
-            # TODO: Hash the json file to easily catch duplicates
             try:
-                json_data = uploaded_file.read().decode('utf-8')
-                survey_data = json.loads(json_data)
+                json_file_content = uploaded_file.read()
+                
+                # Calculate the hash to detect duplicates
+                sha256_hash = hashlib.sha256(json_file_content).hexdigest()
+                
+                if sha256_hash in COMPUTED_HASHES:
+                    response_dict = {"message": "JSON file is already uploaded."}
+                    return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+                    
+                COMPUTED_HASHES.append(sha256_hash)
+                survey_data = json.loads(json_file_content.decode('utf-8'))
                 
                 # Generate a survey
                 survey_title = survey_data.get('title', [])
@@ -33,11 +51,22 @@ class SurveyGenerator(Resource):
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
                 
             except Exception as e:
-                return jsonify({"error": str(e)}), 400
+                response_dict = {"error": str(e)}
+                return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
         else:
             return jsonify({"error": "Invalid file format. Please upload a JSON file."}), 400
     
     def get(self, survey_uuid = None):
+        """
+        Retrieves all surveys or a specific survey by UUID.
+
+        Parameters:
+            survey_uuid: (Optional) Identifier for the specific survey.
+
+        Returns:
+            JSON response containing requested survey/s or error messages.
+        """
+
         if survey_uuid:
             # TODO: Implement a database client to query from
             survey_index = int(survey_uuid)
@@ -52,6 +81,16 @@ class SurveyGenerator(Resource):
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
 
     def generate_survey(self, fields):
+        """
+        Generates survey questions based on provided field definitions.
+
+        Parameters:
+            fields: List of field definitions from the uploaded JSON file.
+
+        Returns:
+            List of generated survey questions.
+        """
+
         generated_survey = []
 
         for field in fields:
@@ -85,25 +124,55 @@ class SurveyGenerator(Resource):
         return generated_survey
 
 class SurveySimulator(Resource):
+    """
+    Simulates taking a survey by fetching and displaying questions sequentially.
+    """
+
     def post(self):
-        # Logic to simulate the survey
-        global CURRENT_QUESTION_INDEX
-        selected_survey = SURVEY_QUESTIONS[CURRENT_SURVEY_INDEX]
-        if CURRENT_QUESTION_INDEX >= len(selected_survey['questionaire']):
-            response_dict = {"message": "Survey completed successfully."}
-            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+        """
+        Handles survey simulation.
+
+        Returns:
+            Response: JSON response containing the next survey question or completion message.
+        """
+        global QUESTION_INDEX
+        global SURVEY_INDEX
+        
+        selected_survey_index = None
+        json_data = request.json
+        if json_data:
+            survey_uuid = json_data.get('survey_uuid')
+            selected_survey_index = int(survey_uuid)
             
-        current_question = selected_survey['questionaire'][CURRENT_QUESTION_INDEX]
+        # Rest question index if the survey is changed
+        current_survey_index = selected_survey_index if selected_survey_index is not None else SURVEY_INDEX
+        if current_survey_index != SURVEY_INDEX:
+            SURVEY_INDEX = current_survey_index
+            QUESTION_INDEX = 0
+
+        selected_survey = SURVEY_QUESTIONS[current_survey_index]
+        survey_title = selected_survey['title']
+        if QUESTION_INDEX >= len(selected_survey['questionaire']):
+            response_dict = {"message": f'{survey_title} survey is completed successfully.'}
+            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
+            
+        current_question = selected_survey['questionaire'][QUESTION_INDEX]
         
         response_dict = {
-            "survey_title": selected_survey['title'],
-            "question": current_question['question']
+            "title": survey_title,
+            "question": f"{QUESTION_INDEX + 1}. " + current_question['question']
         }
         
-        CURRENT_QUESTION_INDEX += 1
+        QUESTION_INDEX += 1
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
     
-    
+    def validate_response(self):
+        """
+        Validates user responses (to be implemented).
+        """
+        pass
+        
+
 api.add_resource(SurveyGenerator, '/surveys')
 api.add_resource(SurveySimulator, '/simulate')
 

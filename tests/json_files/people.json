@@ -1,5 +1,5 @@
 {
-  "title": "Random Survey",
+  "title": "List of Employees",
   "fields": [
     {
       "field_name": "Full Name",
@@ -23,7 +23,7 @@
       "choices": ["Male", "Female", "Other"]
     },
     {
-      "field_name": "Feedback",
+      "field_name": "Biography",
       "input_type": "textarea",
       "expected_length": 500
     }
