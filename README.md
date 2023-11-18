@@ -4,10 +4,6 @@ Survey Builder creates custom surveys instantly from JSON files
 
 ## TODOS:
 
-### Validation and Error Handling:
-- Implement robust error handling for file uploads, JSON parsing, and data validation.
-- Validate input JSON structure and fields, ensuring they meet expected formats.
-
 ### Database Integration:
 - Utilize a database (like PostgreSQL) to store survey data instead of using in-memory variables as it is currently done.
 - Store survey metadata (title, questions, response options) and user responses separately for better data management and retrieval.
