@@ -107,7 +107,7 @@ class SurveyGenerator(Resource):
             elif field_type == 'integer':
                 min_value = field.get('min_value')
                 max_value = field.get('max_value')
-                generated_survey.append({'question': field_name, 'type': 'number', 'validation': {'min': min_value, 'max': max_value}})
+                generated_survey.append({'question': field_name, 'type': 'integer', 'validation': {'min': min_value, 'max': max_value}})
                 
             elif field_type == 'multiple_choice':
                 choices = field.get('choices', [])
@@ -217,16 +217,16 @@ class SurveyResponseHandler(Resource):
            "answer": answer
         }
        
-        # Numbers
+        # Integers
         if question['type'] == 'integer':
             if not isinstance(answer, int) or not (question['validation']['min'] <= answer <= question['validation']['max']):
-                response_dict["message"] = "Invalid response"
+                response_dict["is_response_valid"] = False
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
         
         # Text & Textarea
         elif question['type'] == 'text' or question['type'] == 'textarea':
             if not isinstance(answer, str) or len(answer) > question['validation']['maxLength']:
-                response_dict["message"] = "Invalid response"
+                response_dict["is_response_valid"] = False
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
         
         # Email
@@ -235,7 +235,7 @@ class SurveyResponseHandler(Resource):
             import re
             email_pattern = re.compile(r"[^@]+@[^@]+\.[^@]+")
             if not re.match(email_pattern, answer):
-                response_dict["message"] = "Invalid email format"
+                response_dict["is_response_valid"] = False
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
         
         # Multiple choice
@@ -243,11 +243,11 @@ class SurveyResponseHandler(Resource):
             # Check if the user's response is among the available choices
             choices = question.get('options', [])
             if answer not in choices:
-                response_dict["message"] = "Invalid choice"
+                response_dict["is_response_valid"] = False
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
         
         # If the response passes validation
-        response_dict["message"] = "Valid response"
+        response_dict["is_response_valid"] = True
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
 
 api.add_resource(SurveyGenerator, '/surveys')
