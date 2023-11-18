@@ -162,12 +162,6 @@ class SurveySimulator(Resource):
         
         QUESTION_INDEX += 1
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
-    
-    def validate_response(self):
-        """
-        Validates user responses (to be implemented).
-        """
-        pass
        
 class SurveyResponseHandler(Resource):
     def post(self):
@@ -182,18 +176,19 @@ class SurveyResponseHandler(Resource):
         json_data = request.json
 
         survey_uuid = json_data.get('survey_uuid')
-        question_index = json_data.get('question_index')
+        question_index = json_data.get('question_index', None)
         answer = json_data.get('answer')
         
-        if None in [survey_uuid, question_index, answer]:
-            response_dict = {"message" : "Missing required parameters, survey_uuid, question_index and answer"}
+        if None in [survey_uuid, answer]:
+            response_dict = {"message" : "Missing required parameters, survey_uuid and answer"}
             return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
         
         survey_index = int(survey_uuid)
-        question_index = int(question_index)
-        if question_index < 0 or question_index >= len(SURVEY_QUESTIONS[survey_index]['questionaire']):
-            response_dict = {"message": "Invalid question index"}
-            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+        if question_index:
+            question_index = int(question_index)
+            if question_index < 0 or question_index >= len(SURVEY_QUESTIONS[survey_index]['questionaire']):
+                response_dict = {"message": "Invalid question index"}
+                return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
            
         return self.validate_response(SURVEY_QUESTIONS[survey_index], question_index, answer)
 
@@ -210,10 +205,11 @@ class SurveyResponseHandler(Resource):
             Response: JSON response indicating validation success or failure.
         """
         expected_questions = selected_survey['questionaire']
+        question_index = question_index if question_index else 0
         question = expected_questions[question_index]
         
         response_dict = {
-           "question": question,
+           "current_question": question,
            "answer": answer
         }
        
@@ -248,6 +244,14 @@ class SurveyResponseHandler(Resource):
         
         # If the response passes validation
         response_dict["is_response_valid"] = True
+        
+        # Progress to the next question
+        next_question_index = question_index + 1
+        if next_question_index < len(expected_questions):
+            response_dict['next_question'] = {
+                "question_index": next_question_index,
+                "details": expected_questions[next_question_index]
+            }
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
 
 api.add_resource(SurveyGenerator, '/surveys')
