@@ -104,9 +104,6 @@ class SurveyGenerator(Resource):
             elif field_type == 'email':
                 generated_survey.append({'question': field_name, 'type': 'email'})
                 
-            elif field_type == 'number':
-                generated_survey.append({'question': field_name, 'type': 'number'})
-                
             elif field_type == 'integer':
                 min_value = field.get('min_value')
                 max_value = field.get('max_value')
@@ -150,10 +147,6 @@ class SurveySimulator(Resource):
             SURVEY_INDEX = current_survey_index
             QUESTION_INDEX = 0
 
-        if current_survey_index not in SURVEY_QUESTIONS:
-            response_dict = {"message": "Survey does not exists"}
-            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
-
         selected_survey = SURVEY_QUESTIONS[current_survey_index]
         survey_title = selected_survey['title']
         if QUESTION_INDEX >= len(selected_survey['questionaire']):
@@ -175,10 +168,91 @@ class SurveySimulator(Resource):
         Validates user responses (to be implemented).
         """
         pass
+       
+class SurveyResponseHandler(Resource):
+    def post(self):
+        """
+        Handles answering a specific question in a survey.
+
+        Expects JSON payload with
+            - survey_uuid:
+            - question_index: 
+            - answer:
+        """
+        json_data = request.json
+
+        survey_uuid = json_data.get('survey_uuid')
+        question_index = json_data.get('question_index')
+        answer = json_data.get('answer')
         
+        if None in [survey_uuid, question_index, answer]:
+            response_dict = {"message" : "Missing required parameters, survey_uuid, question_index and answer"}
+            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+        
+        survey_index = int(survey_uuid)
+        question_index = int(question_index)
+        if question_index < 0 or question_index >= len(SURVEY_QUESTIONS[survey_index]['questionaire']):
+            response_dict = {"message": "Invalid question index"}
+            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+           
+        return self.validate_response(SURVEY_QUESTIONS[survey_index], question_index, answer)
+
+    def validate_response(self, selected_survey, question_index, answer):
+        """
+        Validates user response for a specific question in a survey.
+
+        Parameters:
+            selected_survey: 
+            question_index:
+            answer:
+
+        Returns:
+            Response: JSON response indicating validation success or failure.
+        """
+        expected_questions = selected_survey['questionaire']
+        question = expected_questions[question_index]
+        
+        response_dict = {
+           "question": question,
+           "answer": answer
+        }
+       
+        # Numbers
+        if question['type'] == 'integer':
+            if not isinstance(answer, int) or not (question['validation']['min'] <= answer <= question['validation']['max']):
+                response_dict["message"] = "Invalid response"
+                return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+        
+        # Text & Textarea
+        elif question['type'] == 'text' or question['type'] == 'textarea':
+            if not isinstance(answer, str) or len(answer) > question['validation']['maxLength']:
+                response_dict["message"] = "Invalid response"
+                return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+        
+        # Email
+        elif question['type'] == 'email':
+            # Basic email format validation using regex
+            import re
+            email_pattern = re.compile(r"[^@]+@[^@]+\.[^@]+")
+            if not re.match(email_pattern, answer):
+                response_dict["message"] = "Invalid email format"
+                return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+        
+        # Multiple choice
+        elif question['type'] == 'multiple_choice':
+            # Check if the user's response is among the available choices
+            choices = question.get('options', [])
+            if answer not in choices:
+                response_dict["message"] = "Invalid choice"
+                return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+        
+        # If the response passes validation
+        response_dict["message"] = "Valid response"
+        return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
 
 api.add_resource(SurveyGenerator, '/surveys')
 api.add_resource(SurveySimulator, '/simulate')
+api.add_resource(SurveyResponseHandler, '/answer') 
 
 if __name__ == '__main__':
     app.run(debug=True)
