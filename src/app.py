@@ -47,14 +47,14 @@ class SurveyGenerator(Resource):
                 fields = survey_data.get('fields', [])
                 survey_questions = self.generate_survey(fields)
                 SURVEY_QUESTIONS.append({"title": survey_title, "questionaire": survey_questions})
-                response_dict = { "message": "Survey generated successfully"}
+                response_dict = { "message": f"{survey_title} survey generated successfully"}
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
                 
             except Exception as e:
                 response_dict = {"error": str(e)}
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
-        else:
-            return jsonify({"error": "Invalid file format. Please upload a JSON file."}), 400
+        else:    
+            return Response(response=json.dumps({"error": "Invalid file format. Please upload a JSON file."}), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
     
     def get(self, survey_uuid = None):
         """
@@ -149,6 +149,10 @@ class SurveySimulator(Resource):
         if current_survey_index != SURVEY_INDEX:
             SURVEY_INDEX = current_survey_index
             QUESTION_INDEX = 0
+
+        if current_survey_index not in SURVEY_QUESTIONS:
+            response_dict = {"message": "Survey does not exists"}
+            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
 
         selected_survey = SURVEY_QUESTIONS[current_survey_index]
         survey_title = selected_survey['title']
