@@ -1,14 +1,54 @@
+import sys
+import os
+
+# Assuming your current working directory is where the 'project' directory resides
+project_path = os.path.abspath(os.path.join(os.getcwd(), "surveybuilder"))
+sys.path.append(project_path)
+
 from flask import Flask, request, jsonify, Response
 from flask_restful import Resource, Api
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
+from sqlalchemy.dialects.postgresql import JSONB
+import uuid
 import http
 import json
 import hashlib
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://pindo_user:pindo_password@localhost/pindo_challenge'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 api = Api(app)
 
+# Initialize the database
+db = SQLAlchemy(app)
+migrate = Migrate(app, db)
+
+
+# TODO(1): Move database modes to a different file
+class UploadedFile(db.Model):
+    __tablename__ = 'uploaded_files'
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    json_dict = db.Column(JSONB)  # JSONB column for storing JSON data
+    sha256_hash = db.Column(db.String(64), unique=True)
+    # survey = db.relationship('Survey', backref='uploaded_file', uselist=False)
+    
+    def __repr__(self):
+        return '<UploadedFile %r>' % self.sha256_hash
+
+
+class Survey(db.Model):
+    __tablename__ = 'surveys'
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    title = db.Column(db.String(100))
+    file_id = db.Column(db.String(36))
+    
+    def __repr__(self):
+        return '<Survey %r>' % self.title
+
 # Global variables to store surveys and computed hashes
-COMPUTED_HASHES = []
 SURVEY_QUESTIONS = []
 SURVEY_INDEX = 0
 QUESTION_INDEX = 0
@@ -34,13 +74,17 @@ class SurveyGenerator(Resource):
                 
                 # Calculate the hash to detect duplicates
                 sha256_hash = hashlib.sha256(json_file_content).hexdigest()
-                
-                if sha256_hash in COMPUTED_HASHES:
+                existing_file = UploadedFile.query.filter_by(sha256_hash=sha256_hash).first()
+                if existing_file:
                     response_dict = {"message": "JSON file is already uploaded."}
                     return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
-                    
-                COMPUTED_HASHES.append(sha256_hash)
+
                 survey_data = json.loads(json_file_content.decode('utf-8'))
+                
+                # Store the file content and its hash in the database
+                file_data = UploadedFile(json_dict=survey_data, sha256_hash=sha256_hash)
+                db.session.add(file_data)
+                db.session.commit()
                 
                 # Generate a survey
                 survey_title = survey_data.get('title', [])
@@ -48,6 +92,7 @@ class SurveyGenerator(Resource):
                 survey_questions = self.generate_survey(fields)
                 SURVEY_QUESTIONS.append({"title": survey_title, "questionaire": survey_questions})
                 response_dict = { "message": f"{survey_title} survey generated successfully"}
+
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
                 
             except Exception as e:
@@ -56,31 +101,56 @@ class SurveyGenerator(Resource):
         else:    
             return Response(response=json.dumps({"error": "Invalid file format. Please upload a JSON file."}), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
     
-    def get(self, survey_uuid = None):
+    def get(self, uuid = None):
         """
         Retrieves all surveys or a specific survey by UUID.
 
         Parameters:
-            survey_uuid: (Optional) Identifier for the specific survey.
+            uuid: (Optional) Identifier for the specific survey.
 
         Returns:
             JSON response containing requested survey/s or error messages.
         """
-
-        if survey_uuid:
-            # TODO: Implement a database client to query from
-            survey_index = int(survey_uuid)
-            if not survey_index or survey_index > len(SURVEY_QUESTIONS):
-                response_dict = {"message": "Survey does not exits."}
-                return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
-                
-            single_survey_response_dict = SURVEY_QUESTIONS[survey_index]
-            return Response(response=json.dumps(single_survey_response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
+        if uuid:
+            uploaded_file = UploadedFile.query.get(uuid)
+            if uploaded_file:
+                survey_data = uploaded_file.json_dict
             
-        response_dict = SURVEY_QUESTIONS
-        return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
+                survey_title = survey_data.get('title', [])
+                fields = survey_data.get('fields', [])
+                survey_questions = self.generate_survey(fields)
+                
+                single_survey_response_dict = {
+                    'title': survey_title,
+                    'questionaire': survey_questions,
+                    'uuid': uploaded_file.id,
+                    'sha256_hash': uploaded_file.sha256_hash
+                }
 
-    def generate_survey(self, fields):
+                return Response(response=json.dumps(single_survey_response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
+                
+            response_dict = {"message": "Survey does not exits."}
+            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+            
+        uploaded_files = UploadedFile.query.all()
+        files_data = []
+        for uploaded_file in uploaded_files:
+            survey_data = uploaded_file.json_dict
+            
+            survey_title = survey_data.get('title', [])
+            fields = survey_data.get('fields', [])
+            survey_questions = self.generate_survey(fields)
+            
+            files_data.append({
+                'title': survey_title,
+                'questionaire': survey_questions,
+                'uuid': uploaded_file.id,
+                'sha256_hash': uploaded_file.sha256_hash
+            })
+        return Response(response=json.dumps(files_data), status=http.HTTPStatus.OK, mimetype='application/json')
+
+    @staticmethod
+    def generate_survey(fields):
         """
         Generates survey questions based on provided field definitions.
 
@@ -139,28 +209,26 @@ class SurveySimulator(Resource):
         json_data = request.json
         if json_data:
             survey_uuid = json_data.get('survey_uuid')
-            selected_survey_index = int(survey_uuid)
-            
-        # Rest question index if the survey is changed
-        current_survey_index = selected_survey_index if selected_survey_index is not None else SURVEY_INDEX
-        if current_survey_index != SURVEY_INDEX:
-            SURVEY_INDEX = current_survey_index
-            QUESTION_INDEX = 0
+            survey_question_index = json_data.get('question_index', QUESTION_INDEX)
+            survey_question_index = int(survey_question_index)
 
-        selected_survey = SURVEY_QUESTIONS[current_survey_index]
-        survey_title = selected_survey['title']
-        if QUESTION_INDEX >= len(selected_survey['questionaire']):
+        selected_survey = uploaded_file = UploadedFile.query.get(survey_uuid)
+        survey_data = uploaded_file.json_dict
+        survey_title = survey_data.get('title', [])
+        fields = survey_data.get('fields', [])
+        survey_questions = SurveyGenerator.generate_survey(fields)
+        
+        if survey_question_index >= len(survey_questions):
             response_dict = {"message": f'{survey_title} survey is completed successfully.'}
             return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
             
-        current_question = selected_survey['questionaire'][QUESTION_INDEX]
-        
+        current_question = survey_questions[survey_question_index]
         response_dict = {
             "title": survey_title,
-            "question": f"{QUESTION_INDEX + 1}. " + current_question['question']
+            "question": f"{survey_question_index + 1}. " + current_question['question']
         }
         
-        QUESTION_INDEX += 1
+        QUESTION_INDEX = survey_question_index + 1
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
        
 class SurveyResponseHandler(Resource):
@@ -254,7 +322,7 @@ class SurveyResponseHandler(Resource):
             }
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
 
-api.add_resource(SurveyGenerator, '/surveys')
+api.add_resource(SurveyGenerator, '/surveys', '/surveys/<string:uuid>')
 api.add_resource(SurveySimulator, '/simulate')
 api.add_resource(SurveyResponseHandler, '/answer') 
 
