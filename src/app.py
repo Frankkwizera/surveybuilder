@@ -25,14 +25,13 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
 
-# TODO(1): Move database modes to a different file
+# TODO(1): Move database models to a different file
 class UploadedFile(db.Model):
     __tablename__ = 'uploaded_files'
     
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     json_dict = db.Column(JSONB)  # JSONB column for storing JSON data
     sha256_hash = db.Column(db.String(64), unique=True)
-    # survey = db.relationship('Survey', backref='uploaded_file', uselist=False)
     
     def __repr__(self):
         return '<UploadedFile %r>' % self.sha256_hash
