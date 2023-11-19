@@ -46,10 +46,19 @@ class Survey(db.Model):
     
     def __repr__(self):
         return '<Survey %r>' % self.title
+        
+class SurveyResponse(db.Model):
+    __tablename__ = 'survey_responses'
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    survey_uuid = db.Column(db.String(36))
+    response_dict = db.Column(JSONB)
+    
+    def __repr__(self):
+        return '<Survey Response %r>' % self.survey_uuid
 
 # Global variables to store surveys and computed hashes
-SURVEY_QUESTIONS = []
-SURVEY_INDEX = 0
+SURVEY_RESPONSES = {}
 QUESTION_INDEX = 0
 
 
@@ -89,7 +98,6 @@ class SurveyGenerator(Resource):
                 survey_title = survey_data.get('title', [])
                 fields = survey_data.get('fields', [])
                 survey_questions = self.generate_survey(fields)
-                SURVEY_QUESTIONS.append({"title": survey_title, "questionaire": survey_questions})
                 response_dict = { "message": f"{survey_title} survey generated successfully"}
 
                 return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
@@ -202,7 +210,6 @@ class SurveySimulator(Resource):
             Response: JSON response containing the next survey question or completion message.
         """
         global QUESTION_INDEX
-        global SURVEY_INDEX
         
         selected_survey_index = None
         json_data = request.json
@@ -246,32 +253,35 @@ class SurveyResponseHandler(Resource):
         question_index = json_data.get('question_index', None)
         answer = json_data.get('answer')
         
-        if None in [survey_uuid, answer]:
-            response_dict = {"message" : "Missing required parameters, survey_uuid and answer"}
+        if None in [survey_uuid, question_index, answer]:
+            response_dict = {"message" : "Missing required parameters survey_uuid, question_index and answer"}
             return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
-        
-        survey_index = int(survey_uuid)
-        if question_index:
-            question_index = int(question_index)
-            if question_index < 0 or question_index >= len(SURVEY_QUESTIONS[survey_index]['questionaire']):
-                response_dict = {"message": "Invalid question index"}
-                return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
-           
-        return self.validate_response(SURVEY_QUESTIONS[survey_index], question_index, answer)
 
-    def validate_response(self, selected_survey, question_index, answer):
+        uploaded_file = UploadedFile.query.get(survey_uuid)
+        if not uploaded_file:
+            response_dict = {"message": "Invalid question index"}
+            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.BAD_REQUEST, mimetype='application/json')
+
+        survey_data = uploaded_file.json_dict
+        survey_title = survey_data.get('title', [])
+        fields = survey_data.get('fields', [])
+        survey_questions = SurveyGenerator.generate_survey(fields)
+           
+        return self.validate_response(survey_uuid, survey_questions, question_index, answer)
+
+    def validate_response(self, survey_uuid, expected_questions, question_index, answer):
         """
         Validates user response for a specific question in a survey.
 
         Parameters:
-            selected_survey: 
+            expected_questions: 
             question_index:
             answer:
 
         Returns:
             Response: JSON response indicating validation success or failure.
         """
-        expected_questions = selected_survey['questionaire']
+        # expected_questions = selected_survey['questionaire']
         question_index = question_index if question_index else 0
         question = expected_questions[question_index]
         
@@ -312,6 +322,24 @@ class SurveyResponseHandler(Resource):
         # If the response passes validation
         response_dict["is_response_valid"] = True
         
+        if survey_uuid in SURVEY_RESPONSES:
+             SURVEY_RESPONSES[survey_uuid]["responses"].append(
+                {
+                    "question": question['question'], 
+                    "answer": answer, 
+                    "is_response_valid": True 
+                })
+        else:
+            SURVEY_RESPONSES[survey_uuid] = {
+                "responses": [
+                    {
+                        "question": question['question'], 
+                        "answer": answer, 
+                        "is_response_valid": True 
+                    }
+                ]
+            }
+        
         # Progress to the next question
         next_question_index = question_index + 1
         if next_question_index < len(expected_questions):
@@ -319,8 +347,32 @@ class SurveyResponseHandler(Resource):
                 "question_index": next_question_index,
                 "details": expected_questions[next_question_index]
             }
+
+        if question_index == len(expected_questions) - 1:
+            # commit everything to th e database
+            response_dict['is_survey_complete'] = True
+           
+            new_survey_response = SurveyResponse(response_dict=SURVEY_RESPONSES[survey_uuid], survey_uuid=survey_uuid)
+            db.session.add(new_survey_response)
+            db.session.commit()
+        else:
+            response_dict['is_survey_complete'] = False
+
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
 
+    def get(self):
+        response_dict = []
+        all_responses = SurveyResponse.query.all()
+        for survey_response in all_responses:
+            response_dict.append({
+                'survey_uuid': survey_response.survey_uuid,
+                # 'responses': survey_response.response_dict,
+                'uuid': survey_response.id
+            })
+        return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
+        
+        
+        
 api.add_resource(SurveyGenerator, '/surveys', '/surveys/<string:uuid>')
 api.add_resource(SurveySimulator, '/simulate')
 api.add_resource(SurveyResponseHandler, '/answer') 
