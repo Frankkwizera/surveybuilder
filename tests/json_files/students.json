@@ -1,0 +1,27 @@
+{
+    "title": "Kist Students Graduates",
+    "fields": [
+      {
+        "field_name": "Graduation Degree",
+        "input_type": "text",
+        "expected_length": 50
+      },
+      {
+        "field_name": "Graduation Year",
+        "input_type": "integer",
+        "min_value": 2013,
+        "max_value": 2023
+      },
+      {
+        "field_name": "Graduation Class",
+        "input_type": "multiple_choice",
+        "choices": ["First Class", "Second Upper", "Second Lower", "Pass", "Fail"]
+      },
+      {
+        "field_name": "Degree Duration",
+        "input_type": "integer",
+        "min_value": 3,
+        "max_value": 5
+      }
+    ]
+  }

@@ -56,6 +56,10 @@ class SurveyResponse(db.Model):
     
     def __repr__(self):
         return '<Survey Response %r>' % self.survey_uuid
+    
+    @classmethod
+    def get_by_survey_uuid(cls, survey_uuid):
+        return cls.query.filter_by(survey_uuid=survey_uuid).all()
 
 # Global variables to store surveys and computed hashes
 SURVEY_RESPONSES = {}
@@ -360,13 +364,23 @@ class SurveyResponseHandler(Resource):
 
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
 
-    def get(self):
+    def get(self, survey_uuid = None):
         response_dict = []
+        if survey_uuid:
+            survey_responses = SurveyResponse.get_by_survey_uuid(survey_uuid)
+            for survey_response in survey_responses:
+                response_dict.append({
+                    'survey_uuid': survey_response.survey_uuid,
+                    'responses': survey_response.response_dict,
+                    'uuid': survey_response.id
+                })
+            return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
+
         all_responses = SurveyResponse.query.all()
         for survey_response in all_responses:
             response_dict.append({
                 'survey_uuid': survey_response.survey_uuid,
-                # 'responses': survey_response.response_dict,
+                'responses': survey_response.response_dict,
                 'uuid': survey_response.id
             })
         return Response(response=json.dumps(response_dict), status=http.HTTPStatus.OK, mimetype='application/json')
@@ -375,7 +389,7 @@ class SurveyResponseHandler(Resource):
         
 api.add_resource(SurveyGenerator, '/surveys', '/surveys/<string:uuid>')
 api.add_resource(SurveySimulator, '/simulate')
-api.add_resource(SurveyResponseHandler, '/answer') 
+api.add_resource(SurveyResponseHandler, '/answer', '/answer/<string:survey_uuid>') 
 
 if __name__ == '__main__':
     app.run(debug=True)
